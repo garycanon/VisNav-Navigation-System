@@ -19,6 +19,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.programminghut.realtime_object", appContext.packageName)
+        assertEquals("com.cpe42020.Visimp", appContext.packageName)
     }
 }

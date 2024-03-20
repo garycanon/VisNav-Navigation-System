@@ -1,7 +1,7 @@
 package com.cpe42020.Visimp
 
+import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.hardware.camera2.CameraCaptureSession
@@ -17,12 +17,12 @@ import android.view.TextureView
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.cpe42020.Visimp.ml.SsdMobilenetV11Metadata1
 import org.tensorflow.lite.support.common.FileUtil
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import android.os.Build
+import com.cpe42020.Visimp.ml.SsdMobilenetV11Metadata1
 import java.util.*
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val classes = outputs.classesAsTensorBuffer.floatArray
                 val scores = outputs.scoresAsTensorBuffer.floatArray
 
-                var mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                 val canvas = Canvas(mutable)
 
                 val h = mutable.height
@@ -93,7 +93,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                 scores.forEachIndexed { index, fl ->
                     if (fl > 0.5) {
-                        val label = labels[classes[index].toInt()]
+                        //val label = labels[classes[index].toInt()]
                         val boxArea = (locations[index * 4 + 2] - locations[index * 4]) * (locations[index * 4 + 3] - locations[index * 4 + 1])
                         if (boxArea > largestBoxArea) {
                             largestBoxArea = boxArea.toDouble()
@@ -124,7 +124,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         tts = TextToSpeech(this, this)
     }
 
@@ -169,10 +169,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun getPermission() {
         if (ContextCompat.checkSelfPermission(
                 this,
-                android.Manifest.permission.CAMERA
+                Manifest.permission.CAMERA
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 101)
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), 101)
         }
     }
 
