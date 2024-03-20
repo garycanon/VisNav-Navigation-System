@@ -1,4 +1,4 @@
-package com.programminghut.realtime_object
+package com.cpe42020.Visimp
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -17,7 +17,7 @@ import android.view.TextureView
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.programminghut.realtime_object.ml.SsdMobilenetV11Metadata1
+import com.cpe42020.Visimp.ml.SsdMobilenetV11Metadata1
 import org.tensorflow.lite.support.common.FileUtil
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage

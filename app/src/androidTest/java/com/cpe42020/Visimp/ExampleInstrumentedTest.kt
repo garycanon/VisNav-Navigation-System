@@ -1,4 +1,4 @@
-package com.programminghut.realtime_object
+package com.cpe42020.Visimp
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
