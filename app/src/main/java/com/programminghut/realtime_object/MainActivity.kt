@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var model: SsdMobilenetV11Metadata1
     private lateinit var tts: TextToSpeech
 
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -86,24 +87,37 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val w = mutable.width
                 paint.textSize = h / 15f
                 paint.strokeWidth = h / 85f
-                var x = 0
+
+                var largestBoxIndex = -1
+                var largestBoxArea = 0.0
+
                 scores.forEachIndexed { index, fl ->
-                    x = index
-                    x *= 4
                     if (fl > 0.5) {
-                        paint.color = colors[index]
-                        paint.style = Paint.Style.STROKE
-                        canvas.drawRect(
-                            RectF(
-                                locations[x + 1] * w, locations[x] * h,
-                                locations[x + 3] * w, locations[x + 2] * h
-                            ), paint
-                        )
-                        paint.style = Paint.Style.FILL
-                        val label = labels[classes[index].toInt()] + " " + fl.toString()
-                        canvas.drawText(label, locations[x + 1] * w, locations[x] * h, paint)
-                        speak(label)
+                        val label = labels[classes[index].toInt()]
+                        val boxArea = (locations[index * 4 + 2] - locations[index * 4]) * (locations[index * 4 + 3] - locations[index * 4 + 1])
+                        if (boxArea > largestBoxArea) {
+                            largestBoxArea = boxArea.toDouble()
+                            largestBoxIndex = index
+                        }
                     }
+                }
+
+                if (largestBoxIndex != -1) {
+                    val index = largestBoxIndex
+                    val label = labels[classes[index].toInt()]
+
+                    val boxLeft = locations[index * 4 + 1] * w
+                    val boxTop = locations[index * 4] * h
+                    val boxRight = locations[index * 4 + 3] * w
+                    val boxBottom = locations[index * 4 + 2] * h
+
+                    paint.color = colors[index]
+                    paint.style = Paint.Style.STROKE
+                    canvas.drawRect(RectF(boxLeft, boxTop, boxRight, boxBottom), paint)
+                    paint.style = Paint.Style.FILL
+                    canvas.drawText(label, boxLeft, boxTop, paint)
+
+                    speak(label)
                 }
 
                 imageView.setImageBitmap(mutable)
