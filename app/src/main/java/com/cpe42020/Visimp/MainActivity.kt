@@ -3,10 +3,17 @@ package com.cpe42020.Visimp
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -17,19 +24,14 @@ import android.view.TextureView
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.cpe42020.Visimp.ml.SsdMobilenetV11Metadata1
 import org.tensorflow.lite.support.common.FileUtil
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
-import android.os.Build
-import com.cpe42020.Visimp.ml.SsdMobilenetV11Metadata1
-import java.util.*
-import android.hardware.camera2.CameraCharacteristics
-import kotlin.math.*
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-
+import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.min
 
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
@@ -52,6 +54,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var lastSpokenObject: String? = null
     private var cameraCharacteristics: CameraCharacteristics? = null
     private var lastSpokenTimestamp: Long = 0
+    var left: String? = null
+    var right: String? = null
+    private lateinit var NavGuidance: NavGuidance
+
 
 
 
@@ -115,7 +121,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 var largestBoxArea = 0.0
 
                 scores.forEachIndexed { index, fl ->
-                    if (fl > 0.65) {
+                    if (fl > 0.63) {
                         //val label = labels[classes[index].toInt()]
                         val boxArea =
                             (locations[index * 4 + 2] - locations[index * 4]) * (locations[index * 4 + 3] - locations[index * 4 + 1])
@@ -125,6 +131,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                 }
+
 
                 if (largestBoxIndex != -1) {
                     val index = largestBoxIndex
@@ -138,12 +145,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val boxWidth = (boxLeft - boxRight)
                     val sHeight = resources.displayMetrics.heightPixels
 
-                    val distance = calculateDistance(boxHeight)
+                    val strokeWidth = 4f
+                    val textSize = 200f // Set your desired text size here
+                    paint.textSize = textSize
+                    paint.strokeWidth = strokeWidth
+                    val distance = calculateDistance(boxHeight, label)
                     paint.color = colors[index]
                     paint.style = Paint.Style.STROKE
                     canvas.drawRect(RectF(boxLeft, boxTop, boxRight, boxBottom), paint)
                     paint.style = Paint.Style.FILL
                     canvas.drawText(label, boxLeft, boxTop, paint)
+                    val formattedDistance = String.format("%.2f", distance)
+                    canvas.drawText(formattedDistance, boxLeft, boxBottom, paint)
 
                     val obj_center_x = (boxLeft + boxRight) / 2
                     val obj_center_y = (boxTop + boxBottom) / 2
@@ -154,7 +167,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val vector_x = obj_center_x - camera_middle_x
                     val vector_y = obj_center_y - camera_middle_y
 
-                    var angle_deg = Math.toDegrees(atan2(vector_y.toDouble(), vector_x.toDouble()))
+                    var angle_deg =
+                        Math.toDegrees(atan2(vector_y.toDouble(), vector_x.toDouble()))
 
                     if (angle_deg < 0) {
                         angle_deg += 360
@@ -176,14 +190,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         else -> "center"
                     }
 
-                    speakObject("$label",distance, direction )
+                    NavGuidance.speakObject("$label", distance, direction)
                 }
 
                 imageView.setImageBitmap(mutable)
             }
+
         }
+
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         tts = TextToSpeech(this, this)
+        NavGuidance = NavGuidance(tts)
     }
 
     override fun onDestroy() {
@@ -195,8 +212,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tts.shutdown()
     }
 
+
     @SuppressLint("MissingPermission")
     private fun openCamera() {
+
         cameraManager.openCamera(
             cameraManager.cameraIdList[0],
             object : CameraDevice.StateCallback() {
@@ -221,11 +240,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     )
                 }
 
+
                 override fun onDisconnected(p0: CameraDevice) {}
 
                 override fun onError(p0: CameraDevice, p1: Int) {}
-            },
-            handler
+            }, handler
         )
     }
 
@@ -263,37 +282,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun speak(text: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-        } else {
-            val params = HashMap<String, String>()
-            params[TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID] = "stringId"
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, params)
-        }
-    }
 
-    private fun speakObject(objectName: String, distance: Double, direction: String) {
-        val currentTime = System.currentTimeMillis()
-        val timeSinceLastSpoken = currentTime - lastSpokenTimestamp
+    private fun calculateDistance(boxHeight: Float, label:String): Double {
 
-        // Check if the detected object is different from the last spoken object or if enough time has passed since the last spoken object
-        if (objectName != lastSpokenObject || timeSinceLastSpoken > 8000) { // Adjust the delay time (in milliseconds) as needed
-            // Speak the detected object
-            tts.speak("$objectName at ${String.format("%.2f", distance)} meters and at the $direction", TextToSpeech.QUEUE_FLUSH, null, null)
-
-            // Update the last spoken object and timestamp
-            lastSpokenObject = objectName
-            lastSpokenTimestamp = currentTime
-        }
-    }
-    private fun calculateDistance(boxHeight: Float): Double {
-
-        val knownObjectHeight = 0.15
+        val knownObjectHeight = getKnownObjectHeight(label)
         val screenHeight = resources.displayMetrics.heightPixels
         val focalLength = getFocalLength()
-        val distanceinMeters =  (knownObjectHeight * screenHeight) / boxHeight
+        val objectHeightInPixels = boxHeight * screenHeight
 
+        // Calculate distance using the formula
+        val distanceinMeters = (knownObjectHeight * screenHeight) / boxHeight
         return distanceinMeters
 
 
@@ -310,6 +308,92 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return cameraCharacteristics?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.get(0) ?: 0f
     }
 
-
+    private fun getKnownObjectHeight(label: String): Double {
+        return when (label) {
+            "person" -> 0.70 // Average height of a person in meters
+            "bicycle" -> 1.15 // Average height of a bicycle in meters
+            "car" -> 1.0 // Average height of a car in meters
+            "motorcycle" -> 0.80 // Average height of a motorcycle in meters
+            "airplane" -> 4.0 // Average height of an airplane in meters
+            "bus" -> 2.0 // Average height of a bus in meters
+            "train" -> 2.0 // Average height of a train in meters
+            "truck" -> 2.0 // Average height of a truck in meters
+            "boat" -> 2.0 // Average height of a boat in meters
+            "traffic light" -> 1.0 // Average height of a traffic light in meters
+            "fire hydrant" -> 0.5 // Average height of a fire hydrant in meters
+            "stop sign" -> 0.70 // Average height of a stop sign in meters
+            "bench" -> 0.5 // Average height of a bench in meters
+            "bird" -> 0.2 // Average height of a bird in meters
+            "cat" -> 0.25 // Average height of a cat in meters
+            "dog" -> 0.3 // Average height of a dog in meters
+            "horse" -> 1.5 // Average height of a horse in meters
+            "sheep" -> 0.8 // Average height of a sheep in meters
+            "cow" -> 1.5 // Average height of a cow in meters
+            "elephant" -> 3.0 // Average height of an elephant in meters
+            "bear" -> 1.5 // Average height of a bear in meters
+            "zebra" -> 1.3 // Average height of a zebra in meters
+            "giraffe" -> 5.5 // Average height of a giraffe in meters
+            "backpack" -> 0.5 // Average height of a backpack in meters
+            "umbrella" -> 1.0 // Average height of an umbrella in meters
+            "handbag" -> 0.3 // Average height of a handbag in meters
+            "tie" -> 0.2 // Average height of a tie in meters
+            "suitcase" -> 0.6 // Average height of a suitcase in meters
+            "frisbee" -> 0.2 // Average height of a frisbee in meters
+            "skis" -> 1.8 // Average height of skis in meters
+            "snowboard" -> 1.5 // Average height of a snowboard in meters
+            "sports ball" -> 0.3 // Average height of a sports ball in meters
+            "kite" -> 1.0 // Average height of a kite in meters
+            "baseball bat" -> 1.0 // Average height of a baseball bat in meters
+            "baseball glove" -> 0.5 // Average height of a baseball glove in meters
+            "skateboard" -> 0.2 // Average height of a skateboard in meters
+            "surfboard" -> 2.0 // Average height of a surfboard in meters
+            "tennis racket" -> 1.0 // Average height of a tennis racket in meters
+            "bottle" -> 0.2 // Average height of a bottle in meters
+            "wine glass" -> 0.2 // Average height of a wine glass in meters
+            "cup" -> 0.1 // Average height of a cup in meters
+            "fork" -> 0.2 // Average height of a fork in meters
+            "knife" -> 0.2 // Average height of a knife in meters
+            "spoon" -> 0.2 // Average height of a spoon in meters
+            "bowl" -> 0.1 // Average height of a bowl in meters
+            "banana" -> 0.2 // Average height of a banana in meters
+            "apple" -> 0.1 // Average height of an apple in meters
+            "sandwich" -> 0.1 // Average height of a sandwich in meters
+            "orange" -> 0.1 // Average height of an orange in meters
+            "broccoli" -> 0.2 // Average height of broccoli in meters
+            "carrot" -> 0.2 // Average height of a carrot in meters
+            "hot dog" -> 0.1 // Average height of a hot dog in meters
+            "pizza" -> 0.2 // Average height of a pizza in meters
+            "donut" -> 0.1 // Average height of a donut in meters
+            "cake" -> 0.2 // Average height of a cake in meters
+            "chair" -> 0.65 // Average height of a chair in meters
+            "couch" -> 0.8 // Average height of a couch in meters
+            "potted plant" -> 0.4 // Average height of a potted plant in meters
+            "bed" -> 0.5 // Average height of a bed in meters
+            "dining table" -> 0.65 // Average height of a dining table in meters
+            "toilet" -> 0.4 // Average height of a toilet in meters
+            "tv" -> 0.55 // Average height of a TV in meters
+            "laptop" -> 0.3 // Average height of a laptop in meters
+            "mouse" -> 0.05 // Average height of a computer mouse in meters
+            "remote" -> 0.2 // Average height of a remote control in meters
+            "keyboard" -> 0.05 // Average height of a keyboard in meters
+            "cell phone" -> 0.15 // Average height of a cell phone in meters
+            "microwave" -> 0.3 // Average height of a microwave in meters
+            "oven" -> 0.8 // Average height of an oven in meters
+            "toaster" -> 0.2 // Average height of a toaster in meters
+            "sink" -> 0.7 // Average height of a sink in meters
+            "refrigerator" -> 0.75 // Average height of a refrigerator in meters
+            "book" -> 0.1 // Average height of a book in meters
+            "clock" -> 0.3 // Average height of a clock in meters
+            "vase" -> 0.3 // Average height of a vase in meters
+            "scissors" -> 0.2 // Average height of scissors in meters
+            "teddy bear" -> 0.3 // Average height of a teddy bear in meters
+            "hair drier" -> 0.2 // Average height of a hair drier in meters
+            "toothbrush" -> 0.2 // Average height of a toothbrush in meters
+            "door" -> 1.0
+            else -> 0.2 // Default value for other classes
+        }
+    }
 }
+
+
 
