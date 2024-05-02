@@ -32,6 +32,8 @@ import org.tensorflow.lite.support.image.ops.ResizeOp
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.min
+import android.util.Size
+
 
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
@@ -51,11 +53,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var textureView: TextureView
     private lateinit var model: SsdMobilenetV11Metadata1
     private lateinit var tts: TextToSpeech
-    private var lastSpokenObject: String? = null
     private var cameraCharacteristics: CameraCharacteristics? = null
-    private var lastSpokenTimestamp: Long = 0
-    var left: String? = null
-    var right: String? = null
+    private var isSpeaking = false
     private lateinit var NavGuidance: NavGuidance
 
 
@@ -89,8 +88,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         textureView = findViewById(R.id.textureView)
         textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(p0: SurfaceTexture, p1: Int, p2: Int) {
+            override fun onSurfaceTextureAvailable(p0: SurfaceTexture, width: Int, height: Int) {
                 openCamera()
+                val previewAspectRatio = calculateAspectRatio(width, height)
+
+                // Adjust the size of the TextureView to match the aspect ratio of the camera preview
+                val optimalSize = getOptimalPreviewSize(previewAspectRatio)
+                val layoutParams = textureView.layoutParams
+                layoutParams.width = optimalSize.width
+                layoutParams.height = optimalSize.height
+                textureView.layoutParams = layoutParams
             }
 
             override fun onSurfaceTextureSizeChanged(p0: SurfaceTexture, p1: Int, p2: Int) {}
@@ -121,7 +128,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 var largestBoxArea = 0.0
 
                 scores.forEachIndexed { index, fl ->
-                    if (fl > 0.63) {
+                    if (fl > 0.58) {
                         //val label = labels[classes[index].toInt()]
                         val boxArea =
                             (locations[index * 4 + 2] - locations[index * 4]) * (locations[index * 4 + 3] - locations[index * 4 + 1])
@@ -150,13 +157,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     paint.textSize = textSize
                     paint.strokeWidth = strokeWidth
                     val distance = calculateDistance(boxHeight, label)
-                    paint.color = colors[index]
-                    paint.style = Paint.Style.STROKE
-                    canvas.drawRect(RectF(boxLeft, boxTop, boxRight, boxBottom), paint)
-                    paint.style = Paint.Style.FILL
-                    canvas.drawText(label, boxLeft, boxTop, paint)
+                    if (distance<=1.5) {
+                        paint.color = colors[index]
+                        paint.style = Paint.Style.STROKE
+                        canvas.drawRect(RectF(boxLeft, boxTop, boxRight, boxBottom), paint)
+                        paint.style = Paint.Style.FILL
+                        canvas.drawText(label, boxLeft, boxTop, paint)
+                    }
                     val formattedDistance = String.format("%.2f", distance)
-                    canvas.drawText(formattedDistance, boxLeft, boxBottom, paint)
+
+                    if (distance <= 1.8) {
+                        canvas.drawText(formattedDistance, boxLeft, boxBottom, paint)
+                    }
+                    else {
+                        canvas.drawText("", boxLeft, boxBottom, paint)
+                    }
 
                     val obj_center_x = (boxLeft + boxRight) / 2
                     val obj_center_y = (boxTop + boxBottom) / 2
@@ -189,7 +204,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         330.0 <= angle_deg && angle_deg < 360.0 -> "top right"
                         else -> "center"
                     }
-
                     NavGuidance.speakObject("$label", distance, direction)
                 }
 
@@ -284,18 +298,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
 
     private fun calculateDistance(boxHeight: Float, label:String): Double {
-
         val knownObjectHeight = getKnownObjectHeight(label)
         val screenHeight = resources.displayMetrics.heightPixels
-        val focalLength = getFocalLength()
         val objectHeightInPixels = boxHeight * screenHeight
 
         // Calculate distance using the formula
-        val distanceinMeters = (knownObjectHeight * screenHeight) / boxHeight
-        return distanceinMeters
-
-
+        val distanceInMeters = (knownObjectHeight * screenHeight) / boxHeight
+        return if (distanceInMeters <= 1.8) {
+            distanceInMeters
+        } else {
+            Double.POSITIVE_INFINITY
+        }
     }
+
     private fun getFocalLength(): Float {
 
         if (cameraCharacteristics == null) {
@@ -365,7 +380,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             "pizza" -> 0.2 // Average height of a pizza in meters
             "donut" -> 0.1 // Average height of a donut in meters
             "cake" -> 0.2 // Average height of a cake in meters
-            "chair" -> 0.65 // Average height of a chair in meters
+            "chair" -> 0.55 // Average height of a chair in meters
             "couch" -> 0.8 // Average height of a couch in meters
             "potted plant" -> 0.4 // Average height of a potted plant in meters
             "bed" -> 0.5 // Average height of a bed in meters
@@ -393,7 +408,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             else -> 0.2 // Default value for other classes
         }
     }
+    private fun calculateAspectRatio(width: Int, height: Int): Float {
+        // Calculate the aspect ratio
+        return height.toFloat() / width.toFloat()
+    }
+
+    private fun getOptimalPreviewSize(aspectRatio: Float): Size {
+        // Get the available preview sizes from the camera characteristics
+        val cameraId = cameraManager.cameraIdList[0]
+        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+        val streamConfigurationMap =
+            characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?: throw RuntimeException("Cannot get available preview sizes")
+
+        // Find the optimal preview size with the closest aspect ratio to the camera preview aspect ratio
+        val previewSizes = streamConfigurationMap.getOutputSizes(SurfaceTexture::class.java)
+        var optimalSize = Size(0, 0)
+        var minAspectRatioDiff = Float.MAX_VALUE
+
+        for (size in previewSizes) {
+            val sizeAspectRatio = size.width.toFloat() / size.height.toFloat()
+            val aspectRatioDiff = Math.abs(aspectRatio - sizeAspectRatio)
+            if (aspectRatioDiff < minAspectRatioDiff) {
+                minAspectRatioDiff = aspectRatioDiff
+                optimalSize = size
+            }
+        }
+
+        return optimalSize
+    }
 }
-
-
 
