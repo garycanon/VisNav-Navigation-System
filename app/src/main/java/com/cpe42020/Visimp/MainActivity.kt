@@ -438,4 +438,3 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return optimalSize
     }
 }
-
