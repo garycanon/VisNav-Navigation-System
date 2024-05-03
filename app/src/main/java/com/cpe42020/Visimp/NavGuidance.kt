@@ -9,10 +9,6 @@ class NavGuidance(private val tts: TextToSpeech) {
 
     private var lastSpokenObject: String? = null
     private var lastSpokenTimestamp: Long = 0
-    private var lastSpokenDistance: Double = Double.MAX_VALUE
-    private var lastSpokenInstruction: String? = null
-    private var lastSpokenInstructionTimestamp: Long = 0
-    private val instructionCooldown = 3000 // Cooldown period in milliseconds
     var left: String? = null
     var right: String? = null
 
@@ -20,10 +16,7 @@ class NavGuidance(private val tts: TextToSpeech) {
         val currentTime = System.currentTimeMillis()
         val timeSinceLastSpoken = currentTime - lastSpokenTimestamp
 
-        // Check if the current object is closer than the previously spoken object
-        val closerObject = lastSpokenObject == null || distance < lastSpokenDistance
-
-        if (closerObject || timeSinceLastSpoken > 3000) {
+        if (objectName != lastSpokenObject || timeSinceLastSpoken > 5000) {
             val directionLower = direction.lowercase()
             val instruction: String
 
@@ -43,44 +36,34 @@ class NavGuidance(private val tts: TextToSpeech) {
                 instruction = "move forward"
             }
 
-            val instructionCooldownElapsed = currentTime - lastSpokenInstructionTimestamp > instructionCooldown
-            if ((closerObject || timeSinceLastSpoken > 3000) && instruction != lastSpokenInstruction && instructionCooldownElapsed) {
-                when (instruction) {
-                    "move left" -> {
-                        left = objectName
-                        speak("$objectName is near, move left")
-                    }
-                    "move right" -> {
-                        right = objectName
-                        speak("$objectName is near, move right")
-                    }
-                    "check your sides" -> {
-                        if (left != null && right != null) {
-                            speak("Objects on both sides, move backward")
-                            left = null
-                            right = null
-                        } else {
-                            speak("$objectName is in the middle, check your sides")
-                        }
-                    }
-                    "move forward" -> {
-                        speak("Move forward")
+            when (instruction) {
+                "move left" -> {
+                    left = objectName
+                    speak("$objectName is near, move left")
+                }
+                "move right" -> {
+                    right = objectName
+                    speak("$objectName is near, move right")
+                }
+                "check your sides" -> {
+                    if (left != null && right != null) {
+                        speak("Objects on both sides, move backward")
+                        left = null
+                        right = null
+                    } else {
+                        speak("$objectName is in the middle, check your sides")
                     }
                 }
-
-                // Update the last spoken object, distance, and timestamp
-                lastSpokenObject = objectName
-                lastSpokenDistance = distance
-                lastSpokenTimestamp = currentTime
-                lastSpokenInstruction = instruction
-                lastSpokenInstructionTimestamp = currentTime
+                "move forward" -> {
+                    speak("Object is far. Move forward")
+                }
             }
+            lastSpokenObject = objectName
+            lastSpokenTimestamp = currentTime
         }
     }
 
-
-
-    fun speak(text: String) {
+    private fun speak(text: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         } else {
