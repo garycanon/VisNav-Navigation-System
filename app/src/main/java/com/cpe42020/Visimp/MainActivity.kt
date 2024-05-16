@@ -1,5 +1,6 @@
 package com.cpe42020.Visimp
 
+import NavGuidance
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
@@ -13,7 +14,7 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
-import android.os.Build
+import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -95,17 +96,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         textureView = findViewById(R.id.textureView)
         textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+
             override fun onSurfaceTextureAvailable(p0: SurfaceTexture, width: Int, height: Int) {
                 openCamera()
-                val previewAspectRatio = calculateAspectRatio(width, height)
+
+                val displayRotation = windowManager.defaultDisplay.rotation
+                val previewSize = getOptimalPreviewSize(width, height, displayRotation)
 
                 // Adjust the size of the TextureView to match the aspect ratio of the camera preview
-                val optimalSize = getOptimalPreviewSize(previewAspectRatio)
                 val layoutParams = textureView.layoutParams
-                layoutParams.width = optimalSize.width
-                layoutParams.height = optimalSize.height
+                layoutParams.width = previewSize.width
+                layoutParams.height = previewSize.height
                 textureView.layoutParams = layoutParams
             }
+
 
             override fun onSurfaceTextureSizeChanged(p0: SurfaceTexture, p1: Int, p2: Int) {}
 
@@ -276,7 +280,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         tts = TextToSpeech(this, this)
-        NavGuidance = NavGuidance(tts)
+        NavGuidance = NavGuidance(this, tts)
 
     }
 
@@ -292,9 +296,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     @SuppressLint("MissingPermission")
     private fun openCamera() {
+        val cameraId = cameraManager.cameraIdList[0]
+        cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId)
+        val sensorOrientation = cameraCharacteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
 
         cameraManager.openCamera(
-            cameraManager.cameraIdList[0],
+            cameraId,
             object : CameraDevice.StateCallback() {
                 override fun onOpened(p0: CameraDevice) {
                     cameraDevice = p0
@@ -302,9 +309,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val surfaceTexture = textureView.surfaceTexture
                     val surface = Surface(surfaceTexture)
 
-                    val captureRequest =
-                        cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+                    val captureRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
                     captureRequest.addTarget(surface)
+
+                    val displayRotation = windowManager.defaultDisplay.rotation
+                    captureRequest.set(CaptureRequest.JPEG_ORIENTATION, (sensorOrientation + getOrientation(displayRotation) + 360) % 360)
 
                     cameraDevice.createCaptureSession(listOf(surface),
                         object : CameraCaptureSession.StateCallback() {
@@ -317,13 +326,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     )
                 }
 
-
                 override fun onDisconnected(p0: CameraDevice) {}
 
                 override fun onError(p0: CameraDevice, p1: Int) {}
             }, handler
         )
     }
+
+
+    private fun getOrientation(rotation: Int): Int {
+        return when (rotation) {
+            Surface.ROTATION_0 -> 90
+            Surface.ROTATION_90 -> 0
+            Surface.ROTATION_180 -> 270
+            Surface.ROTATION_270 -> 180
+            else -> throw IllegalArgumentException("Invalid rotation value")
+        }
+    }
+
+
 
     private fun getPermission() {
         if (ContextCompat.checkSelfPermission(
@@ -476,7 +497,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return height.toFloat() / width.toFloat()
     }
 
-    private fun getOptimalPreviewSize(aspectRatio: Float): Size {
+    private fun getOptimalPreviewSize(aspectRatio: Int, height: Int, displayRotation: Int): Size {
         // Get the available preview sizes from the camera characteristics
         val cameraId = cameraManager.cameraIdList[0]
         val characteristics = cameraManager.getCameraCharacteristics(cameraId)
